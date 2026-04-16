@@ -3,6 +3,8 @@ use sqlx::PgPool;
 use crate::error::AppError;
 use crate::models::TaskModel;
 use crate::schemas::{TaskRequestSchema, TaskUpdateSchema};
+use crate::state::AppState;
+use crate::stream::publish_task_created;
 
 
 pub async fn get_tasks_by_owner_id(pool: &PgPool, owner_id: i64) -> Result<Vec<TaskModel>, AppError> {
@@ -28,19 +30,23 @@ pub async fn get_tasks_by_assignee_id(pool: &PgPool, assignee_id: i64) -> Result
 }
 
 
-pub async fn create_task(pool:&PgPool,task: TaskRequestSchema) -> Result<TaskModel, AppError>{
-    sqlx::query_as::<_, TaskModel>("INSERT INTO tasks (title, description, status, owner_id, assignee_id) VALUES ($1, $2, $3, $4, $5) RETURNING *")
+pub async fn create_task(state: &AppState, task: TaskRequestSchema) -> Result<TaskModel, AppError> {
+    let res = sqlx::query_as::<_, TaskModel>("INSERT INTO tasks (title, description, status, owner_id, assignee_id) VALUES ($1, $2, $3, $4, $5) RETURNING *")
         .bind(task.title)
         .bind(task.description)
         .bind(task.status)
         .bind(task.owner_id)
         .bind(task.assignee_id)
-        .fetch_one(pool)
+        .fetch_one(&state.db_pool)
         .await
-        .map_err(|e| match e{
+        .map_err(|e| match e {
             sqlx::Error::RowNotFound => AppError::NotFound(),
             other => AppError::DatabaseError(other),
-        })
+        })?;
+    
+    //publish_task_created(state.rabbit.as_ref(), res.clone()).await?;
+
+    Ok(res)
 }
 
 pub async fn update_task_by_id(

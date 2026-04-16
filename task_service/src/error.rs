@@ -1,4 +1,5 @@
 use axum::{Json, body::Body, http::{Response, StatusCode}, response::IntoResponse};
+use serde_json::error;
 
 
 
@@ -17,6 +18,10 @@ pub enum AppError {
     Unauthorized(String),
     #[error("JWT error: {0}")]
     JWTError(#[from] jsonwebtoken::errors::Error),
+    #[error("Stream error: {0}")]
+    StreamError(#[from] lapin::Error),
+    #[error("Serialization error: {0}")]
+    SerializationError(#[from] serde_json::Error),
 }
 
 impl IntoResponse for AppError {
@@ -36,6 +41,14 @@ impl IntoResponse for AppError {
             AppError::JWTError(e) => {
                 tracing::error!("JWT error: {e}");
                 (StatusCode::UNAUTHORIZED, "Invalid token".into())
+            }
+            AppError::StreamError(e) => {
+                tracing::error!("Stream error: {e}");
+                (StatusCode::INTERNAL_SERVER_ERROR, "Stream error".into())
+            }
+            AppError::SerializationError(e) => {
+                tracing::error!("Serialization error: {e}");
+                (StatusCode::INTERNAL_SERVER_ERROR, "Serialization error".into())
             }
         };
         (status, Json(serde_json::json!({"error": message}))).into_response()

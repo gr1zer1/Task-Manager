@@ -1,4 +1,3 @@
-
 use axum::{Extension, Json};
 use axum::extract::{Path, Request};
 use axum::response::Response;
@@ -14,26 +13,33 @@ use crate::db::*;
 
 use crate::state::AppState;
 
-pub fn app(state: &AppState) -> Router{
-    Router::new()
-    .route("/", get(|| async { "Hello, World!" }))
-    .route("/done/{task_id}", patch(done_task))
-    .route("/task", post(add_task).patch(update_task))
-    .route_layer(from_fn_with_state(state.clone(), middleware_auth))
-    .with_state(state.clone())
+pub fn app(state: &AppState) -> Router {
+    let protected = Router::new()
+        .route("/done/{task_id}", patch(done_task))
+        .route("/task", post(add_task).patch(update_task))
+        .route_layer(from_fn_with_state(state.clone(), middleware_auth));
 
+    Router::new()
+        .route("/", get(|| async { "Hello, World!" })) 
+        .merge(protected)
+        .with_state(state.clone())
 }
 
 async fn middleware_auth(State(config):State<AppState>,mut req:Request,next:Next) -> Result<Response, AppError>{
 
-    let token = req.headers()
-                .get("Authorization")
-                .map(|data|data.to_str().unwrap_or(""))
-                .map(|data|data.strip_prefix("Bearer "))
-                .ok_or(AppError::InternalServerError("".to_string()))?;
+    let header = req.headers()
+    .get("Authorization")
+    .ok_or(AppError::Unauthorized("Missing Authorization header".to_string()))?;
+
+    let header_str = header.to_str()
+        .map_err(|_| AppError::Unauthorized("Invalid header format".to_string()))?;
+
+    let token = header_str
+        .strip_prefix("Bearer ")
+        .ok_or(AppError::Unauthorized("Invalid authorization scheme".to_string()))?;
 
 
-    let claims = decode(token.unwrap(), &DecodingKey::from_secret(config.jwt_config.jwt_secret.as_ref()))?;
+    let claims = decode(token, &DecodingKey::from_secret(config.jwt_config.jwt_secret.as_ref()))?;
     
     req.extensions_mut().insert(claims);
 
@@ -43,12 +49,11 @@ async fn middleware_auth(State(config):State<AppState>,mut req:Request,next:Next
 }
 
 async fn add_task(
-    State(state):State<AppState>,
-    Extension(claims):Extension<Claims>,
-    Json(task):Json<TaskCreateSchema>
-) -> Result<Json<TaskModel>, AppError>{
-
-    let new_task = TaskRequestSchema{
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Json(task): Json<TaskCreateSchema>
+) -> Result<Json<TaskModel>, AppError> {
+    let new_task = TaskRequestSchema {
         title: task.title,
         description: task.description,
         status: task.status,
@@ -58,7 +63,7 @@ async fn add_task(
         deadline: task.deadline
     };
     
-    Ok(Json(create_task(&state.db_pool, new_task).await?))
+    Ok(Json(create_task(&state, new_task).await?))
 }
 
 async fn update_task(State(state):State<AppState>,Json(task):Json<TaskUpdateSchema>) -> Result<Json<TaskModel>, AppError>{

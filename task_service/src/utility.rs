@@ -1,14 +1,16 @@
-use jsonwebtoken::{DecodingKey, Validation, Algorithm};
+use jsonwebtoken::{Algorithm, DecodingKey, Validation};
 use serde::{Deserialize, Serialize};
 
 use crate::error::AppError;
 
-
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct Claims{
+pub struct Claims {
     pub sub: String,
     pub exp: usize,
+    #[serde(rename = "type")]
     pub token_type: String,
+    #[serde(default)]
+    pub is_service: bool,
 }
 
 pub fn decode(token: &str, key: &DecodingKey) -> Result<Claims, AppError> {
