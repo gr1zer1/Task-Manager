@@ -1,127 +1,263 @@
-# Task Manager API
+# Task Manager - Distributed Task Management System
 
-Переделанный Task Manager с использованием архитектуры из url_short analytics сервиса.
+Полнофункциональная система управления задачами с использованием микросервисной архитектуры.
 
-## Архитектурные улучшения
+## 🏗️ Архитектура
 
-### 1. **Структура проекта**
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Telegram Bot (Python)                    │
+│              - Создание задач                               │
+│              - Просмотр назначенных задач                   │
+│              - Отметить как выполненные                     │
+└──────────────────────┬──────────────────────────────────────┘
+                       │ HTTP
+                       ▼
+┌─────────────────────────────────────────────────────────────┐
+│                  Task Service (Rust)                        │
+│              - CRUD операции с задачами                     │
+│              - JWT аутентификация                           │
+│              - Публикация событий в RabbitMQ                │
+└──────────────────────┬──────────────────────────────────────┘
+                       │ Events
+                       ▼
+┌─────────────────────────────────────────────────────────────┐
+│    RabbitMQ - Message Broker                                │
+│    - task.created                                           │
+│    - task.updated                                           │
+│    - task.deleted                                           │
+└──────────────────────┬──────────────────────────────────────┘
+                       │
+                       ▼
+┌─────────────────────────────────────────────────────────────┐
+│         Event Consumer Service (Python)                     │
+│              - Обработка событий                            │
+│              - Кэширование данных                           │
+│              - Нотификации                                  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## 🚀 Быстрый старт
+
+### Предварительные требования
+- Docker & Docker Compose
+- Python 3.11+ (для локальной разработки)
+- Git
+
+### Установка с Docker (рекомендуется)
+
+```bash
+# Клонировать репозиторий
+git clone <repo_url>
+cd task_manager
+
+# Создать .env файл
+cp .env.example .env
+
+# Заполнить необходимые значения в .env
+# TELEGRAM_TOKEN - токен от @BotFather
+# JWT_TOKEN - токен для сервиса
+
+# Запустить все сервисы
+make docker-up
+
+# Проверить логи
+make docker-logs
+```
+
+### Локальная разработка
+
+```bash
+# Установить зависимости
+make install
+
+# Запустить сервисы
+make dev
+
+# Для остановки просто нажмите Ctrl+C
+```
+
+## 📋 Сервисы
+
+### Telegram Bot
+- **Порт**: В контейнере
+- **Технология**: aiogram 3.0
+- **Функции**:
+  - /start - начало работы
+  - /my_tasks - мои задачи
+  - /assigned - назначенные мне
+  - /new_task - создать задачу
+  - /done <id> - отметить выполненной
+
+### Task Service (Rust)
+- **Порт**: 8000
+- **Endpoints**:
+  - GET /tasks/owner/{owner_id}
+  - GET /tasks/assignee/{assignee_id}
+  - POST /task
+  - PATCH /task
+  - PATCH /done/{task_id}
+
+### Event Consumer
+- **Подписывается на**: RabbitMQ events
+- **Функции**:
+  - Обработка task.created
+  - Обработка task.updated
+  - Обработка task.deleted
+  - Локальное кэширование
+
+### RabbitMQ
+- **Порт**: 5672 (AMQP), 15672 (Management UI)
+- **URL**: http://localhost:15672
+- **Credentials**: guest/guest
+
+### PostgreSQL
+- **Порт**: 5432
+- **User**: taskuser
+- **Password**: taskpass
+- **Database**: task_manager
+
+## 🔧 Переменные окружения
+
+```env
+# Telegram
+TELEGRAM_TOKEN=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+# JWT
+JWT_TOKEN=your_secret_jwt_token
+
+# URLs
+TASK_SERVICE_URL=http://localhost:8000
+RABBITMQ_URL=amqp://guest:guest@localhost/
+
+# Debug
+DEBUG=True
+```
+
+## 📦 Структура проекта
+
 ```
 task_manager/
-├── core/                    # Ядро приложения
-│   ├── config.py           # Единая конфигурация с Pydantic Settings
-│   ├── db.py               # DBHelper класс для управления БД
-│   ├── auth.py             # JWT аутентификация (сохранено)
-│   ├── utility.py          # Утилиты (хеширование пароля)
-│   ├── models/
-│   │   ├── base.py         # Base класс с автоматическим __tablename__
-│   │   └── __init__.py     # User и Task модели
-│   └── __init__.py
-├── users/                   # User endpoints
-│   ├── routes.py
-│   ├── __init__.py
-│   └── schemas.py          # Pydantic схемы (в tasks/)
-├── tasks/                   # Task endpoints
-│   ├── routes.py
-│   ├── schemas.py          # Единая папка для всех Pydantic схем
-│   └── __init__.py
-├── main.py                 # Главное приложение с lifespan
-├── alembic/                # Миграции БД
-├── requirements.txt        # Очищенные зависимости
-└── .env.example           # Пример переменных окружения
+├── telegram_bot/
+│   ├── api_client.py          # HTTP клиент для Task Service
+│   ├── handlers.py            # Обработчики команд
+│   ├── keyboards.py           # Кнопки и клавиатуры
+│   ├── schemas.py             # Pydantic модели
+│   ├── config.py              # Конфигурация
+│   ├── main.py                # Точка входа
+│   ├── requirements.txt
+│   ├── Dockerfile
+│   └── .gitignore
+├── event_consumer/
+│   ├── event_handler.py       # Обработчик RabbitMQ событий
+│   ├── cache.py               # In-memory кэш
+│   ├── config.py              # Конфигурация
+│   ├── main.py                # Точка входа
+│   ├── requirements.txt
+│   ├── Dockerfile
+│   └── .gitignore
+├── task_service/              # Rust сервис
+│   ├── src/
+│   │   ├── db.rs
+│   │   ├── routes/
+│   │   │   └── route.rs
+│   │   └── ...
+│   └── Cargo.toml
+├── docker-compose.yml         # Оркестрация контейнеров
+├── .env.example              # Пример переменных
+├── .gitignore
+├── Makefile                  # Команды для разработки
+└── README.md
 ```
 
-### 2. **Ключевые улучшения**
+## 🐳 Docker команды
 
-#### Config Management
-- **Было**: Конфиг разбросан по разным файлам (auth.py, db.py)
-- **Стало**: Единый `core/config.py` с Pydantic `BaseSettings` и `SettingsConfigDict`
-- Все переменные окружения загружаются из `.env` файла
-
-#### Database Layer
-- **Было**: Простые функции `create_async_engine`, `SessionLocal`
-- **Стало**: `DBHelper` класс с методами `dispose()` и `get_session()`
-- Более гибкий и расширяемый подход
-- Pool и overflow parameters для оптимизации
-
-#### Models
-- **Было**: Каждая модель со своим `__tablename__`
-- **Стало**: `Base` класс с `@declared_attr` для автоматического `__tablename__`
-- `TimestampMixin` для отслеживания `created_at` и `updated_at`
-- Наследование моделями обоих для полной функциональности
-
-#### Dependency Injection
-- **Было**: `SessionDep = Annotated[AsyncSession, Depends(get_db)]`
-- **Стало**: `SessionDep = Annotated[AsyncSession, Depends(db_helper.get_session)]`
-- Консистентный паттерн со Annotated для типизации
-
-#### Schemas
-- **Было**: Рассредоточены по разным местам
-- **Стало**: Единая папка `tasks/schemas.py` с `ConfigDict(from_attributes=True)`
-- Все Pydantic модели в одном месте
-
-#### Application Lifecycle
-- **Было**: Нет управления жизненным циклом приложения
-- **Стало**: `@asynccontextmanager` с `lifespan` для graceful shutdown БД
-- Правильное закрытие соединений при остановке
-
-### 3. **JWT Authentication (сохранено)**
-
-JWT аутентификация оставлена без изменений в `core/auth.py`:
-- `create_access_token()`
-- `create_refresh_token()`
-- `decode_token()`
-
-Все настройки теперь берутся из `config`:
-- `JWT_SECRET_KEY`
-- `JWT_ALGORITHM`
-- `ACCESS_TOKEN_EXPIRE_MINUTES`
-- `REFRESH_TOKEN_EXPIRE_DAYS`
-
-## Запуск
-
-### 1. Установка зависимостей
 ```bash
-pip install -r requirements.txt
+# Запустить все сервисы
+docker-compose up -d
+
+# Просмотреть логи
+docker-compose logs -f
+
+# Остановить сервисы
+docker-compose down
+
+# Пересобрать образы
+docker-compose build --no-cache
+
+# Запустить только RabbitMQ
+docker-compose up -d rabbitmq
+
+# Просмотреть логи конкретного сервиса
+docker-compose logs -f telegram_bot
 ```
 
-### 2. Подготовка окружения
+## 🧪 Тестирование
+
+### Telegram Bot
+1. Открыть Telegram
+2. Найти вашего бота
+3. Отправить /start
+4. Использовать команды
+
+### Task Service API
 ```bash
-cp .env.example .env
-# Отредактируйте .env с вашими значениями
+# Создать задачу
+curl -X POST http://localhost:8000/task \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "Test Task",
+    "description": "Test Description",
+    "status": "todo",
+    "assignee_id": null
+  }'
+
+# Получить мои задачи
+curl http://localhost:8000/tasks/owner/1 \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
 ```
 
-### 3. Миграции БД
-```bash
-alembic upgrade head
-```
+## 🔐 Безопасность
 
-### 4. Запуск приложения
-```bash
-python main.py
-```
+- Используется JWT для аутентификации
+- Переменные окружения в .env (не коммитятся)
+- HTTPS рекомендуется для продакшена
+- RabbitMQ защищен паролем
 
-Приложение запустится на `http://0.0.0.0:8000`
+## 📊 Мониторинг
 
-## API Endpoints
+### RabbitMQ Management UI
+- URL: http://localhost:15672
+- Username: guest
+- Password: guest
 
-### Users
-- `POST /users/register` - Регистрация
-- `POST /users/login` - Вход
-- `GET /users` - Все пользователи
-- `GET /users/{user_id}` - Конкретный пользователь
+Здесь вы можете:
+- Просмотреть очереди
+- Просмотреть обмены
+- Мониторить трафик
+- Отладить сообщения
 
-### Tasks
-- `POST /tasks` - Создание задачи
-- `GET /tasks` - Задачи пользователя
-- `GET /tasks/{task_id}` - Конкретная задача
-- `PUT /tasks/{task_id}` - Обновление
-- `DELETE /tasks/{task_id}` - Удаление
+## 🛠️ Разработка
 
-## Преимущества новой архитектуры
+### Добавить новую команду в бота
+1. Создать handler в `telegram_bot/handlers.py`
+2. Добавить router в `telegram_bot/main.py`
 
-✅ **Масштабируемость** - Лучше организованная структура
-✅ **Конфигуируемость** - Единая конфигурация через Pydantic
-✅ **Реиспользуемость** - DBHelper можно использовать в других проектах
-✅ **Типизация** - Лучшая типизация с Pydantic
-✅ **Управление жизненным циклом** - Правильный startup/shutdown
-✅ **Консистентность** - Паттерны соответствуют analytics сервису
+### Добавить новый event
+1. Обновить `task_service` для публикации события
+2. Добавить handler в `event_consumer/event_handler.py`
+
+### Расширить API
+1. Добавить метод в `api_client.py`
+2. Добавить handler в `telegram_bot/handlers.py`
+
+## 📝 Лицензия
+
+MIT License
+
+## 👥 Контакты
+
+- Task Service: http://localhost:8000
+- RabbitMQ: http://localhost:15672
+- PostgreSQL: localhost:5432

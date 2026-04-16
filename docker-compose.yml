@@ -1,34 +1,143 @@
+version: "3.8"
 
 services:
   api:
-    build: .
+    build: ./user_service/.
     ports:
       - "8001:8001"
     env_file: .env
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     networks:
       - b_network
-    
+
+  task_api:
+    build: ./task_service/.
+    ports:
+      - "8002:8002"
+    env_file: .env
+    depends_on:
+      task_db:
+        condition: service_healthy
+    networks:
+      - b_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   db:
     image: postgres:16
+
+    env_file:
+      - .env
     environment:
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: task_manager
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_DB: ${POSTGRES_DB}
     ports:
       - "5432:5432"
     networks:
       - b_network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $POSTGRES_USER -d $POSTGRES_DB -h localhost"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U $POSTGRES_USER -d $POSTGRES_DB -h localhost",
+        ]
       interval: 5s
       timeout: 5s
       retries: 5
     volumes:
       - db_data:/var/lib/postgresql/data
+  task_db:
+    image: postgres:16
+    env_file:
+      - .env
+    environment:
+      POSTGRES_USER: ${TASK_POSTGRES_USER}
+      POSTGRES_PASSWORD: ${TASK_POSTGRES_PASSWORD}
+      POSTGRES_DB: ${TASK_POSTGRES_DB}
+    ports:
+      - "5433:5432"
+    networks:
+      - b_network
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U $TASK_POSTGRES_USER -d $TASK_POSTGRES_DB -h localhost",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - task_db_data:/var/lib/postgresql/data
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    container_name: rabbitmq
+    restart: always
+    env_file: .env
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    networks:
+      - b_network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_running"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - rabbitmq-lib:/var/lib/rabbitmq
+
+  telegram_bot:
+    build:
+      context: ./telegram_bot
+      dockerfile: Dockerfile
+    container_name: task_manager_telegram_bot
+    env_file: .env
+    environment:
+      USER_SERVICE_URL: http://api:8001
+      TASK_SERVICE_URL: http://task_api:8002
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq/
+    depends_on:
+      api:
+        condition: service_healthy
+      task_api:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - b_network
+
+  event_consumer:
+    build:
+      context: ./event_consumer
+      dockerfile: Dockerfile
+    container_name: task_manager_event_consumer
+    env_file: .env
+    environment:
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq/
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - b_network
 
 networks:
   b_network:
@@ -36,4 +145,8 @@ networks:
 
 volumes:
   db_data:
+    driver: local
+  task_db_data:
+    driver: local
+  rabbitmq-lib:
     driver: local

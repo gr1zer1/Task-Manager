@@ -1,11 +1,17 @@
+# Environment
+.env
+.env.local
+.venv
+venv/
+ENV/
+env/
+
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
-env/
-.venv/
-ENV/
 build/
 develop-eggs/
 dist/
@@ -18,15 +24,18 @@ parts/
 sdist/
 var/
 wheels/
-.pytest_cache/
-.coverage
-htmlcov/
-.idea/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# IDE
 .vscode/
+.idea/
 *.swp
 *.swo
 *~
-.env
 .DS_Store
-.venv/
-target/
+
+# Logs
+*.log
+logs/

@@ -1,12 +1,11 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
 
 from core import db_helper
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from users.routes import router as users_router
-from tasks.routes import router as tasks_router
 
 
 @asynccontextmanager
@@ -26,7 +25,6 @@ app = FastAPI(
 
 # Include routers
 app.include_router(users_router, prefix="/users")
-app.include_router(tasks_router, prefix="/tasks")
 
 # CORS Middleware
 app.add_middleware(
@@ -53,7 +51,7 @@ async def exception_handler(request: Request, exc: HTTPException):
             "detail": exc.detail,
             "error": True,
             "path": request.url.path,
-        }
+        },
     )
 
 
@@ -65,15 +63,10 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
             "detail": exc.errors(),
             "error": True,
             "path": request.url.path,
-        }
+        },
     )
 
 
 @app.get("/health")
 async def health_check():
     return {"status": "ok"}
-
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
