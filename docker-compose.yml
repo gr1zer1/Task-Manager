@@ -132,7 +132,11 @@ services:
     env_file: .env
     environment:
       RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq/
+      USER_SERVICE_URL: http://api:8001
+      TELEGRAM_TOKEN: ${TELEGRAM_TOKEN}
     depends_on:
+      api:
+        condition: service_healthy
       rabbitmq:
         condition: service_healthy
     restart: unless-stopped

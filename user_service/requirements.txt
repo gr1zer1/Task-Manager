@@ -3,6 +3,7 @@ annotated-doc==0.0.4
 annotated-types==0.7.0
 anyio==4.13.0
 asyncpg==0.31.0
+aiosqlite==0.21.0
 bcrypt==3.2.2
 certifi==2026.2.25
 cffi==2.0.0

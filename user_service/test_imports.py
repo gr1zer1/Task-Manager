@@ -1,36 +1,29 @@
-import sys
-from pathlib import Path
+from core import (
+    Base,
+    TaskModel,
+    UserModel,
+    config,
+    create_access_token,
+    create_refresh_token,
+    db_helper,
+    decode_token,
+    hash_password,
+    verify_password,
+)
+from main import app
+from users.routes import router as users_router
 
-# Add the project to the path
-sys.path.insert(0, str(Path(__file__).parent))
 
-# Try to import all modules to check for import errors
-try:
-    from core import (
-        config,
-        db_helper,
-        create_access_token,
-        create_refresh_token,
-        decode_token,
-        hash_password,
-        verify_password,
-        Base,
-        User,
-        Task,
-    )
-    from users.routes import router as users_router
-    from tasks.routes import router as tasks_router
-    from main import app
-
-    print("✓ All imports successful!")
-    print(f"✓ Database URL: {config.database_url[:50]}...")
-    print(f"✓ JWT Algorithm: {config.jwt_algorithm}")
-    print(f"✓ Users router: {users_router}")
-    print(f"✓ Tasks router: {tasks_router}")
-    print(f"✓ FastAPI app: {app.title}")
-    
-except Exception as e:
-    print(f"✗ Import error: {e}")
-    import traceback
-    traceback.print_exc()
-    sys.exit(1)
+def test_core_imports_are_available():
+    assert config.database_url
+    assert db_helper is not None
+    assert Base is not None
+    assert UserModel is not None
+    assert TaskModel is not None
+    assert create_access_token is not None
+    assert create_refresh_token is not None
+    assert decode_token is not None
+    assert hash_password is not None
+    assert verify_password is not None
+    assert users_router is not None
+    assert app.title == "Task Manager API"

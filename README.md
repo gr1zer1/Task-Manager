@@ -1,263 +1,197 @@
-# Task Manager - Distributed Task Management System
+# Task Manager
 
-Полнофункциональная система управления задачами с использованием микросервисной архитектуры.
+Task Manager is a small distributed task platform built around a Telegram-first workflow.  
+The repository combines a Python bot, a Rust task API, a Python user service, RabbitMQ-driven notifications, and Docker-based local orchestration.
 
-## 🏗️ Архитектура
+## Overview
 
+- Telegram bot with registration and login by email/password
+- JWT-based authorization between services
+- Task creation, assignment, listing, and completion
+- RabbitMQ events for task lifecycle changes
+- Telegram notifications for task participants
+- Docker Compose environment for local development
+
+## Architecture
+
+```text
+Telegram Bot (aiogram)
+    |
+    | HTTP
+    v
+User Service (FastAPI) <----> PostgreSQL
+    |
+    | JWT
+    v
+Task Service (Axum + Rust) <----> PostgreSQL
+    |
+    | task.*
+    v
+RabbitMQ
+    |
+    v
+Event Consumer (Python)
+    |
+    v
+Telegram notifications
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    Telegram Bot (Python)                    │
-│              - Создание задач                               │
-│              - Просмотр назначенных задач                   │
-│              - Отметить как выполненные                     │
-└──────────────────────┬──────────────────────────────────────┘
-                       │ HTTP
-                       ▼
-┌─────────────────────────────────────────────────────────────┐
-│                  Task Service (Rust)                        │
-│              - CRUD операции с задачами                     │
-│              - JWT аутентификация                           │
-│              - Публикация событий в RabbitMQ                │
-└──────────────────────┬──────────────────────────────────────┘
-                       │ Events
-                       ▼
-┌─────────────────────────────────────────────────────────────┐
-│    RabbitMQ - Message Broker                                │
-│    - task.created                                           │
-│    - task.updated                                           │
-│    - task.deleted                                           │
-└──────────────────────┬──────────────────────────────────────┘
-                       │
-                       ▼
-┌─────────────────────────────────────────────────────────────┐
-│         Event Consumer Service (Python)                     │
-│              - Обработка событий                            │
-│              - Кэширование данных                           │
-│              - Нотификации                                  │
-└─────────────────────────────────────────────────────────────┘
-```
 
-## 🚀 Быстрый старт
+## Services
 
-### Предварительные требования
-- Docker & Docker Compose
-- Python 3.11+ (для локальной разработки)
-- Git
+### `telegram_bot`
 
-### Установка с Docker (рекомендуется)
+The user-facing entrypoint.
+
+- registration and login by email/password
+- task creation from chat
+- owner and assignee task views
+- task completion flow
+
+### `user_service`
+
+Authentication and identity service.
+
+- user registration
+- login and JWT issuing
+- Telegram account linking
+- user lookup by email or Telegram ID
+
+### `task_service`
+
+Core task API written in Rust.
+
+- list tasks by owner
+- list tasks by assignee
+- create task
+- update task
+- mark task as done
+- publish task events to RabbitMQ
+
+### `event_consumer`
+
+Background worker for task notifications.
+
+- subscribes to `task.*`
+- loads task participants from `user_service`
+- sends Telegram notifications
+
+## Stack
+
+- Python 3.12
+- FastAPI
+- aiogram
+- Rust + Axum
+- PostgreSQL
+- RabbitMQ
+- Docker Compose
+
+## Local Run
+
+### Prerequisites
+
+- Docker
+- Docker Compose
+- Telegram bot token from `@BotFather`
+
+### Start
 
 ```bash
-# Клонировать репозиторий
-git clone <repo_url>
-cd task_manager
-
-# Создать .env файл
-cp .env.example .env
-
-# Заполнить необходимые значения в .env
-# TELEGRAM_TOKEN - токен от @BotFather
-# JWT_TOKEN - токен для сервиса
-
-# Запустить все сервисы
-make docker-up
-
-# Проверить логи
-make docker-logs
+docker compose up -d --build
 ```
 
-### Локальная разработка
+### Stop
 
 ```bash
-# Установить зависимости
-make install
-
-# Запустить сервисы
-make dev
-
-# Для остановки просто нажмите Ctrl+C
+docker compose down
 ```
 
-## 📋 Сервисы
+### Check status
 
-### Telegram Bot
-- **Порт**: В контейнере
-- **Технология**: aiogram 3.0
-- **Функции**:
-  - /start - начало работы
-  - /my_tasks - мои задачи
-  - /assigned - назначенные мне
-  - /new_task - создать задачу
-  - /done <id> - отметить выполненной
+```bash
+docker compose ps
+docker compose logs -f telegram_bot
+docker compose logs -f api
+docker compose logs -f task_api
+```
 
-### Task Service (Rust)
-- **Порт**: 8000
-- **Endpoints**:
-  - GET /tasks/owner/{owner_id}
-  - GET /tasks/assignee/{assignee_id}
-  - POST /task
-  - PATCH /task
-  - PATCH /done/{task_id}
+## Main Endpoints
 
-### Event Consumer
-- **Подписывается на**: RabbitMQ events
-- **Функции**:
-  - Обработка task.created
-  - Обработка task.updated
-  - Обработка task.deleted
-  - Локальное кэширование
+### User Service
 
-### RabbitMQ
-- **Порт**: 5672 (AMQP), 15672 (Management UI)
-- **URL**: http://localhost:15672
-- **Credentials**: guest/guest
+- `POST /users/register`
+- `POST /users/login`
+- `POST /users/telegram/link`
+- `GET /users/by-email`
+- `GET /users/telegram/{telegram_id}`
+- `GET /users/{user_id}`
+- `GET /health`
 
-### PostgreSQL
-- **Порт**: 5432
-- **User**: taskuser
-- **Password**: taskpass
-- **Database**: task_manager
+### Task Service
 
-## 🔧 Переменные окружения
+- `GET /tasks/owner/{owner_id}`
+- `GET /tasks/assignee/{assignee_id}`
+- `POST /task`
+- `PATCH /task`
+- `PATCH /done/{task_id}`
+
+## Environment
+
+Typical variables used by the stack:
 
 ```env
-# Telegram
-TELEGRAM_TOKEN=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+TELEGRAM_TOKEN=your_bot_token
 
-# JWT
-JWT_TOKEN=your_secret_jwt_token
+USER_SERVICE_URL=http://api:8001
+TASK_SERVICE_URL=http://task_api:8002
+RABBITMQ_URL=amqp://guest:guest@rabbitmq/
 
-# URLs
-TASK_SERVICE_URL=http://localhost:8000
-RABBITMQ_URL=amqp://guest:guest@localhost/
+DATABASE_URL=postgresql+asyncpg://...
+TASK_DATABASE_URL=postgres://...
+JWT_SECRET_KEY=your_secret
 
-# Debug
-DEBUG=True
+POSTGRES_USER=...
+POSTGRES_PASSWORD=...
+POSTGRES_DB=...
+
+TASK_POSTGRES_USER=...
+TASK_POSTGRES_PASSWORD=...
+TASK_POSTGRES_DB=...
+
+RABBITMQ_USER=guest
+RABBITMQ_PASSWORD=guest
 ```
 
-## 📦 Структура проекта
+## Testing
 
+### Python services
+
+```bash
+cd user_service && pytest -q
+cd telegram_bot && pytest -q
+cd event_consumer && pytest -q
 ```
+
+### Rust service
+
+```bash
+cd task_service && cargo test
+```
+
+## Repository Layout
+
+```text
 task_manager/
 ├── telegram_bot/
-│   ├── api_client.py          # HTTP клиент для Task Service
-│   ├── handlers.py            # Обработчики команд
-│   ├── keyboards.py           # Кнопки и клавиатуры
-│   ├── schemas.py             # Pydantic модели
-│   ├── config.py              # Конфигурация
-│   ├── main.py                # Точка входа
-│   ├── requirements.txt
-│   ├── Dockerfile
-│   └── .gitignore
+├── user_service/
+├── task_service/
 ├── event_consumer/
-│   ├── event_handler.py       # Обработчик RabbitMQ событий
-│   ├── cache.py               # In-memory кэш
-│   ├── config.py              # Конфигурация
-│   ├── main.py                # Точка входа
-│   ├── requirements.txt
-│   ├── Dockerfile
-│   └── .gitignore
-├── task_service/              # Rust сервис
-│   ├── src/
-│   │   ├── db.rs
-│   │   ├── routes/
-│   │   │   └── route.rs
-│   │   └── ...
-│   └── Cargo.toml
-├── docker-compose.yml         # Оркестрация контейнеров
-├── .env.example              # Пример переменных
-├── .gitignore
-├── Makefile                  # Команды для разработки
+├── docker-compose.yml
 └── README.md
 ```
 
-## 🐳 Docker команды
+## Notes
 
-```bash
-# Запустить все сервисы
-docker-compose up -d
-
-# Просмотреть логи
-docker-compose logs -f
-
-# Остановить сервисы
-docker-compose down
-
-# Пересобрать образы
-docker-compose build --no-cache
-
-# Запустить только RabbitMQ
-docker-compose up -d rabbitmq
-
-# Просмотреть логи конкретного сервиса
-docker-compose logs -f telegram_bot
-```
-
-## 🧪 Тестирование
-
-### Telegram Bot
-1. Открыть Telegram
-2. Найти вашего бота
-3. Отправить /start
-4. Использовать команды
-
-### Task Service API
-```bash
-# Создать задачу
-curl -X POST http://localhost:8000/task \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "title": "Test Task",
-    "description": "Test Description",
-    "status": "todo",
-    "assignee_id": null
-  }'
-
-# Получить мои задачи
-curl http://localhost:8000/tasks/owner/1 \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN"
-```
-
-## 🔐 Безопасность
-
-- Используется JWT для аутентификации
-- Переменные окружения в .env (не коммитятся)
-- HTTPS рекомендуется для продакшена
-- RabbitMQ защищен паролем
-
-## 📊 Мониторинг
-
-### RabbitMQ Management UI
-- URL: http://localhost:15672
-- Username: guest
-- Password: guest
-
-Здесь вы можете:
-- Просмотреть очереди
-- Просмотреть обмены
-- Мониторить трафик
-- Отладить сообщения
-
-## 🛠️ Разработка
-
-### Добавить новую команду в бота
-1. Создать handler в `telegram_bot/handlers.py`
-2. Добавить router в `telegram_bot/main.py`
-
-### Добавить новый event
-1. Обновить `task_service` для публикации события
-2. Добавить handler в `event_consumer/event_handler.py`
-
-### Расширить API
-1. Добавить метод в `api_client.py`
-2. Добавить handler в `telegram_bot/handlers.py`
-
-## 📝 Лицензия
-
-MIT License
-
-## 👥 Контакты
-
-- Task Service: http://localhost:8000
-- RabbitMQ: http://localhost:15672
-- PostgreSQL: localhost:5432
+- `telegram_bot` stores user auth state in bot FSM storage
+- access tokens are used directly; refresh flow is not implemented in the bot yet
+- task events are published after successful task mutations
+- RabbitMQ Management UI is available on `http://localhost:15672`

@@ -1,151 +1,124 @@
 import logging
-from typing import List, Optional
+from typing import Any, Optional
 
 import httpx
-from config import SERVICE_EMAIL, SERVICE_PASSWORD, TASK_SERVICE_URL, USER_SERVICE_URL
+
+from config import TASK_SERVICE_URL, USER_SERVICE_URL
 from schemas import TaskCreateRequest, TaskResponse, TaskUpdateRequest
 
 logger = logging.getLogger(__name__)
 
 
-class TaskServiceClient:
-    def __init__(self, jwt_token: str):
-        self.base_url = TASK_SERVICE_URL
-        self.jwt_token = jwt_token
-        self.headers = {
-            "Authorization": f"Bearer {jwt_token}",
-            "Content-Type": "application/json",
-        }
+class ServiceApiError(Exception):
+    def __init__(self, status_code: int, detail: str):
+        super().__init__(detail)
+        self.status_code = status_code
+        self.detail = detail
 
-    def update_token(self, jwt_token: str):
-        """Обновить JWT токен"""
-        self.jwt_token = jwt_token
-        self.headers["Authorization"] = f"Bearer {jwt_token}"
-        logger.info("JWT token updated")
 
-    async def get_tasks_by_owner(self, owner_id: int) -> Optional[List[TaskResponse]]:
+class BaseApiClient:
+    def __init__(self, base_url: str):
+        self.base_url = base_url.rstrip("/")
+
+    async def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        token: Optional[str] = None,
+        **kwargs: Any,
+    ) -> Any:
+        headers = kwargs.pop("headers", {})
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+
         async with httpx.AsyncClient() as client:
             try:
-                response = await client.get(
-                    f"{self.base_url}/tasks/owner/{owner_id}", headers=self.headers
+                response = await client.request(
+                    method, f"{self.base_url}{path}", headers=headers, **kwargs
                 )
-                response.raise_for_status()
-                return response.json()
-            except httpx.HTTPError as e:
-                print(f"Error fetching tasks: {e}")
-                return None
+            except httpx.HTTPError as exc:
+                logger.exception("HTTP request failed: %s %s", method, path)
+                raise ServiceApiError(503, "Service is unavailable") from exc
+
+        if response.is_error:
+            detail = "Request failed"
+            try:
+                payload = response.json()
+                detail = payload.get("detail") or payload.get("error") or detail
+            except ValueError:
+                if response.text:
+                    detail = response.text
+
+            raise ServiceApiError(response.status_code, detail)
+
+        if not response.content:
+            return None
+
+        return response.json()
+
+
+class UserServiceClient(BaseApiClient):
+    def __init__(self):
+        super().__init__(USER_SERVICE_URL)
+
+    async def register_user(
+        self, email: str, password: str, telegram_id: Optional[int] = None
+    ) -> dict:
+        payload = {"email": email, "password": password, "telegram_id": telegram_id}
+        return await self._request("POST", "/users/register", json=payload)
+
+    async def login_user(self, email: str, password: str) -> dict:
+        return await self._request(
+            "POST",
+            "/users/login",
+            data={"username": email, "password": password},
+        )
+
+    async def link_telegram(self, token: str, telegram_id: int) -> dict:
+        return await self._request(
+            "POST",
+            "/users/telegram/link",
+            token=token,
+            json={"telegram_id": telegram_id},
+        )
+
+    async def find_user_by_email(self, email: str) -> dict:
+        return await self._request("GET", "/users/by-email", params={"email": email})
+
+
+class TaskServiceClient(BaseApiClient):
+    def __init__(self):
+        super().__init__(TASK_SERVICE_URL)
+
+    async def get_tasks_by_owner(
+        self, token: str, owner_id: int
+    ) -> list[TaskResponse]:
+        return await self._request("GET", f"/tasks/owner/{owner_id}", token=token)
 
     async def get_tasks_by_assignee(
-        self, assignee_id: int
-    ) -> Optional[List[TaskResponse]]:
-        async with httpx.AsyncClient() as client:
-            try:
-                response = await client.get(
-                    f"{self.base_url}/tasks/assignee/{assignee_id}",
-                    headers=self.headers,
-                )
-                response.raise_for_status()
-                return response.json()
-            except httpx.HTTPError as e:
-                print(f"Error fetching tasks: {e}")
-                return None
+        self, token: str, assignee_id: int
+    ) -> list[TaskResponse]:
+        return await self._request(
+            "GET", f"/tasks/assignee/{assignee_id}", token=token
+        )
 
     async def create_task(
-        self, task: TaskCreateRequest, user_id: int
+        self, token: str, task: TaskCreateRequest
     ) -> Optional[TaskResponse]:
-        async with httpx.AsyncClient() as client:
-            try:
-                payload = {
-                    "title": task.title,
-                    "description": task.description,
-                    "status": "todo",
-                    "owner_id": user_id,
-                    "assignee_id": task.assignee_id,
-                    "deadline": task.deadline,
-                }
-                response = await client.post(
-                    f"{self.base_url}/task", json=payload, headers=self.headers
-                )
-                response.raise_for_status()
-                return response.json()
-            except httpx.HTTPError as e:
-                print(f"Error creating task: {e}")
-                return None
+        payload = task.model_dump(exclude_none=True)
+        payload["status"] = "pending"
+        return await self._request("POST", "/task", token=token, json=payload)
 
-    async def update_task(self, task: TaskUpdateRequest) -> Optional[TaskResponse]:
-        async with httpx.AsyncClient() as client:
-            try:
-                response = await client.patch(
-                    f"{self.base_url}/task",
-                    json=task.dict(exclude_none=True),
-                    headers=self.headers,
-                )
-                response.raise_for_status()
-                return response.json()
-            except httpx.HTTPError as e:
-                print(f"Error updating task: {e}")
-                return None
+    async def update_task(
+        self, token: str, task: TaskUpdateRequest
+    ) -> Optional[TaskResponse]:
+        return await self._request(
+            "PATCH",
+            "/task",
+            token=token,
+            json=task.model_dump(exclude_none=True),
+        )
 
-    async def done_task(self, task_id: int) -> Optional[TaskResponse]:
-        async with httpx.AsyncClient() as client:
-            try:
-                response = await client.patch(
-                    f"{self.base_url}/done/{task_id}", headers=self.headers
-                )
-                response.raise_for_status()
-                return response.json()
-            except httpx.HTTPError as e:
-                print(f"Error marking task as done: {e}")
-                return None
-
-
-class AuthServiceClient:
-    """Клиент для получения JWT от user_service"""
-
-    def __init__(self):
-        self.base_url = USER_SERVICE_URL
-
-    async def get_service_token(self) -> Optional[str]:
-        """Получить JWT токен для сервиса"""
-        async with httpx.AsyncClient() as client:
-            try:
-                response = await client.post(
-                    f"{self.base_url}/users/login",
-                    data={"username": SERVICE_EMAIL, "password": SERVICE_PASSWORD},
-                )
-                if response.status_code != 200:
-                    logger.error(
-                        f"❌ Login failed: {response.status_code} - {response.text}"
-                    )
-                    return None
-                response.raise_for_status()
-                data = response.json()
-                token = data.get("access_token")
-                logger.info(f"✅ Got JWT token from user_service")
-                return token
-            except httpx.HTTPError as e:
-                logger.error(f"❌ Error getting JWT token: {e}")
-                return None
-
-    async def register_service(self) -> bool:
-        """Зарегистрировать сервис если не существует"""
-        async with httpx.AsyncClient() as client:
-            try:
-                response = await client.post(
-                    f"{self.base_url}/users/register",
-                    json={"email": SERVICE_EMAIL, "password": SERVICE_PASSWORD},
-                )
-                if response.status_code == 409:
-                    logger.info("Service already registered")
-                    return True
-                if response.status_code != 200 and response.status_code != 201:
-                    logger.error(
-                        f"❌ Registration failed: {response.status_code} - {response.text}"
-                    )
-                    return False
-                response.raise_for_status()
-                logger.info(f"✅ Service registered")
-                return True
-            except httpx.HTTPError as e:
-                logger.error(f"❌ Error registering service: {e}")
-                return False
+    async def done_task(self, token: str, task_id: int) -> Optional[TaskResponse]:
+        return await self._request("PATCH", f"/done/{task_id}", token=token)

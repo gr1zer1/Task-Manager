@@ -10,9 +10,7 @@ from users.routes import router as users_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
     yield
-    # Shutdown
     await db_helper.dispose()
 
 
@@ -23,10 +21,8 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Include routers
 app.include_router(users_router, prefix="/users")
 
-# CORS Middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://localhost:8000"],

@@ -42,8 +42,7 @@ async fn main() {
             .await;
 
             if let Ok(tasks) = overdue_tasks {
-                for task in tasks {
-                    //let _ = publish_task_event(&state_for_bg.rabbit, "overdue", task).await;
+                for _task in tasks {
                 }
             }
         }
